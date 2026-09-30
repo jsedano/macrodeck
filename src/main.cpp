@@ -43,6 +43,12 @@ enum UiMode {
   UI_MENU
 };
 
+enum RotaryBehavior {
+  ROTARY_BEHAVIOR_VOLUME,
+  ROTARY_BEHAVIOR_TRACK,
+  ROTARY_BEHAVIOR_NONE
+};
+
 struct MacroAction {
   const char* label;
   uint8_t key;
@@ -54,6 +60,7 @@ struct MacroAction {
 struct MacroProfile {
   const char* name;
   uint8_t actionIndexForButton[4];
+  RotaryBehavior rotaryBehavior;
 };
 
 const MacroAction kActions[] = {
@@ -66,11 +73,11 @@ const MacroAction kActions[] = {
 };
 
 const MacroProfile kProfiles[] = {
-  {"Meeting Core", {0, 1, 2, 3}},
-  {"Meeting View", {4, 0, 3, 2}},
-  {"Privacy", {1, 5, 0, 4}},
-  {"Present", {2, 4, 1, 3}},
-  {"Mixed", {5, 2, 0, 1}}
+  {"Meeting Core", {0, 1, 2, 3}, ROTARY_BEHAVIOR_VOLUME},
+  {"Meeting View", {4, 0, 3, 2}, ROTARY_BEHAVIOR_VOLUME},
+  {"Privacy", {1, 5, 0, 4}, ROTARY_BEHAVIOR_VOLUME},
+  {"Present", {2, 4, 1, 3}, ROTARY_BEHAVIOR_VOLUME},
+  {"Mixed", {5, 2, 0, 1}, ROTARY_BEHAVIOR_TRACK}
 };
 
 const uint8_t PROFILE_COUNT = sizeof(kProfiles) / sizeof(kProfiles[0]);
@@ -137,6 +144,55 @@ void playMenuSelectBeep() {
   playPassiveTone(1300, 40, 0);
 }
 
+void playRotaryActionBeep() {
+  playPassiveTone(1650, 12, 0);
+}
+
+const char* rotaryBehaviorLabel(RotaryBehavior behavior) {
+  switch (behavior) {
+    case ROTARY_BEHAVIOR_VOLUME:
+      return "Volume";
+    case ROTARY_BEHAVIOR_TRACK:
+      return "Track";
+    case ROTARY_BEHAVIOR_NONE:
+      return "None";
+    default:
+      return "Unknown";
+  }
+}
+
+void triggerRotaryBehavior(RotaryBehavior behavior, int direction, bool bleConnected) {
+  if (!bleConnected) {
+    playActionErrorBeep();
+    return;
+  }
+
+  switch (behavior) {
+    case ROTARY_BEHAVIOR_VOLUME:
+      if (direction > 0) {
+        bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
+        Serial.println(F("Rotary -> Volume Up"));
+      } else {
+        bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
+        Serial.println(F("Rotary -> Volume Down"));
+      }
+      playRotaryActionBeep();
+      break;
+    case ROTARY_BEHAVIOR_TRACK:
+      if (direction > 0) {
+        bleKeyboard.write(KEY_MEDIA_NEXT_TRACK);
+        Serial.println(F("Rotary -> Next Track"));
+      } else {
+        bleKeyboard.write(KEY_MEDIA_PREVIOUS_TRACK);
+        Serial.println(F("Rotary -> Previous Track"));
+      }
+      playRotaryActionBeep();
+      break;
+    case ROTARY_BEHAVIOR_NONE:
+      break;
+  }
+}
+
 void sendShortcut(const MacroAction& action) {
   if (action.useCtrl) {
     bleKeyboard.press(KEY_LEFT_CTRL);
@@ -174,6 +230,8 @@ void drawNormalScreen(bool bleConnected) {
   display.println(action3.label);
   display.print(F("BTN4: "));
   display.println(action4.label);
+  display.print(F("ROT: "));
+  display.println(rotaryBehaviorLabel(profile.rotaryBehavior));
   display.println(bleConnected ? F("BLE OK") : F("BLE OFF"));
   display.display();
 }
@@ -199,6 +257,8 @@ void drawMenuScreen(bool bleConnected) {
   display.println(action3.label);
   display.print(F("4:"));
   display.println(action4.label);
+  display.print(F("Rotary: "));
+  display.println(rotaryBehaviorLabel(selected.rotaryBehavior));
   display.println(bleConnected ? F("Click: save") : F("Click: save (offline)"));
   display.display();
 }
@@ -267,7 +327,9 @@ void handleEncoderClick(bool bleConnected) {
 }
 
 void handleEncoderStep(int direction, bool bleConnected) {
-  if (uiMode != UI_MENU) {
+  if (uiMode == UI_NORMAL) {
+    const MacroProfile& profile = kProfiles[currentProfile];
+    triggerRotaryBehavior(profile.rotaryBehavior, direction, bleConnected);
     return;
   }
 
