@@ -263,24 +263,6 @@ void drawMenuScreen(bool bleConnected) {
   display.display();
 }
 
-void updateActionDisplay(uint8_t buttonIndex, const char* label, bool connected) {
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print(F("BTN"));
-  display.print(buttonIndex + 1);
-  display.print(F(": "));
-  display.println(label);
-
-  if (connected) {
-    display.println(F("BLE connected"));
-    display.println(F("Macro sent"));
-  } else {
-    display.println(F("BLE not connected"));
-    display.println(F("Macro not sent"));
-  }
-  display.display();
-}
 
 void handleButtonPressed(uint8_t buttonIndex, bool bleConnected) {
   const MacroProfile& profile = kProfiles[currentProfile];
@@ -291,20 +273,11 @@ void handleButtonPressed(uint8_t buttonIndex, bool bleConnected) {
   const MacroAction& action = kActions[actionIndex];
 
   if (bleConnected) {
-    Serial.print(F("BTN"));
-    Serial.print(buttonIndex + 1);
-    Serial.print(F(" -> "));
-    Serial.println(action.label);
     sendShortcut(action);
     playActionOkBeep();
-    updateActionDisplay(buttonIndex, action.label, true);
   } else {
-    Serial.print(F("BTN"));
-    Serial.print(buttonIndex + 1);
-    Serial.print(F(" pressed, BLE disconnected: "));
-    Serial.println(action.label);
+
     playActionErrorBeep();
-    updateActionDisplay(buttonIndex, action.label, false);
   }
 }
 
@@ -425,7 +398,7 @@ void setup() {
   // Delay for 2 seconds
   delay(2000);
   playPassiveTone(1000, 40, 0);
-  drawNormalScreen(false);
+  drawNormalScreen(bleKeyboard.isConnected());
   Serial.println(F("Setup complete."));
 }
 
@@ -434,9 +407,11 @@ void loop() {
   if (bleConnected && !lastBleConnected) {
     Serial.println(F("BLE connected"));
     playBleConnectedBeep();
+    drawNormalScreen(bleKeyboard.isConnected());
   } else if (!bleConnected && lastBleConnected) {
     Serial.println(F("BLE disconnected"));
     playBleDisconnectedBeep();
+    drawNormalScreen(bleKeyboard.isConnected());
   }
   lastBleConnected = bleConnected;
 
