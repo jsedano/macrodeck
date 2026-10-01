@@ -13,6 +13,8 @@
 #define SERIAL_BAUD 115200
 #define DEBOUNCE_MS 40
 #define ROTARY_DEBOUNCE_MS 25
+#define ROTARY_FAST_WINDOW_MS 80
+#define ROTARY_BEEP_COOLDOWN_MS 60
 #define BUZZER_CHANNEL 0
 #define BUZZER_RESOLUTION 8
 
@@ -107,6 +109,8 @@ int stableRotarySwState = HIGH;
 unsigned long lastRotarySwDebounceTime = 0;
 uint8_t lastRotaryState = 0;
 int rotaryTransitionCount = 0;
+unsigned long lastEncoderStepMs = 0;
+unsigned long lastRotaryBeepMs = 0;
 
 const int kBleConnectMelody[] = {
   NOTE_C5, NOTE_D5, NOTE_E5, NOTE_G5, NOTE_C6
@@ -157,6 +161,21 @@ void playRotaryActionBeep() {
   playPassiveTone(1650, 12, 0);
 }
 
+void playRotaryActionBeepThrottled() {
+  unsigned long now = millis();
+  if (now - lastRotaryBeepMs >= ROTARY_BEEP_COOLDOWN_MS) {
+    playRotaryActionBeep();
+    lastRotaryBeepMs = now;
+  }
+}
+
+void sendGuiArrow(uint8_t arrowKey) {
+  // Use a tight GUI+Arrow chord so terminals/apps interpret it as app scroll.
+  bleKeyboard.press(KEY_LEFT_GUI);
+  bleKeyboard.press(arrowKey);
+  bleKeyboard.releaseAll();
+}
+
 const char* rotaryBehaviorLabel(RotaryBehavior behavior) {
   switch (behavior) {
     case ROTARY_BEHAVIOR_VOLUME:
@@ -200,20 +219,12 @@ void triggerRotaryBehavior(RotaryBehavior behavior, int direction, bool bleConne
       playRotaryActionBeep();
       break;
     case ROTARY_BEHAVIOR_UP_DOWN:
-      bleKeyboard.press(KEY_LEFT_GUI);    // Hold down the GUI/Command key
-      delay(5);                           // Tiny buffer for the OS to register the modifier
-
       if (direction > 0) {
-        bleKeyboard.write(KEY_DOWN_ARROW);
-        bleKeyboard.write(KEY_DOWN_ARROW);
+        sendGuiArrow(KEY_DOWN_ARROW);
       } else {
-        bleKeyboard.write(KEY_UP_ARROW);
-        bleKeyboard.write(KEY_UP_ARROW);
+        sendGuiArrow(KEY_UP_ARROW);
       }
-      
-      bleKeyboard.releaseAll();           // Cleanly release all keys together
-      delay(10);  
-      playRotaryActionBeep();
+      playRotaryActionBeepThrottled();
       break;
 
     case ROTARY_BEHAVIOR_NONE:
@@ -334,7 +345,16 @@ void handleEncoderClick(bool bleConnected) {
 void handleEncoderStep(int direction, bool bleConnected) {
   if (uiMode == UI_NORMAL) {
     const MacroProfile& profile = kProfiles[currentProfile];
-    triggerRotaryBehavior(profile.rotaryBehavior, direction, bleConnected);
+    unsigned long now = millis();
+    int repeats = 1;
+    if (profile.rotaryBehavior == ROTARY_BEHAVIOR_UP_DOWN && (now - lastEncoderStepMs) < ROTARY_FAST_WINDOW_MS) {
+      repeats = 2;
+    }
+    lastEncoderStepMs = now;
+
+    for (int i = 0; i < repeats; ++i) {
+      triggerRotaryBehavior(profile.rotaryBehavior, direction, bleConnected);
+    }
     return;
   }
 
@@ -502,7 +522,7 @@ void loop() {
     lastButtonReading[i] = reading;
   }
 
-  delay(5);
+  delay(1);
 }
 
 /*
