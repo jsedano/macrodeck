@@ -46,12 +46,14 @@ enum UiMode {
 enum RotaryBehavior {
   ROTARY_BEHAVIOR_VOLUME,
   ROTARY_BEHAVIOR_TRACK,
+  ROTARY_BEHAVIOR_UP_DOWN,
   ROTARY_BEHAVIOR_NONE
 };
 
 struct MacroAction {
   const char* label;
   uint8_t key;
+  const uint8_t* mediaKeyReport;
   bool useCtrl;
   bool useGui;
   bool useShift;
@@ -64,20 +66,27 @@ struct MacroProfile {
 };
 
 const MacroAction kActions[] = {
-  {"Zoom Mute",   'a', false, true, true},
-  {"Zoom Video",  'v', false, true, true},
-  {"Zoom Share",  's', false, true, true},
-  {"Zoom Pause",  't', false, true, true},
-  {"Zoom Full",   'f', false, true, true},
-  {"Lock Screen", 'q', true,  true, false}
+  // Label,       Key,  MediaKey,                       Ctrl,  Gui,   Shift
+  {"Mute Mic",          'a',  nullptr,                  false, true,  true},
+  {"Web Cam",           'v',  nullptr,                  false, true,  true},
+  {"Share Screen",      's',  nullptr,                  false, true,  true},
+  {"Pause S. Share",    't',  nullptr,                  false, true,  true},
+  {"Zoom Full",         'f',  nullptr,                  false, true,  true},
+  {"Lock Screen",       'q',  nullptr,                  true,  true,  false},
+  {"Prev",              '\0', KEY_MEDIA_PREVIOUS_TRACK, false, false, false},
+  {"Play",              '\0', KEY_MEDIA_PLAY_PAUSE,     false, false, false},
+  {"Next",              '\0', KEY_MEDIA_NEXT_TRACK,     false, false, false},
+  {"Mute",              '\0', KEY_MEDIA_MUTE,           false, false, false},
+  {"Enter",           KEY_RETURN,  nullptr,           false, false, false},
+  {"Ctrl+C",           'c',  nullptr,           true, false, false},
+  {"Tab",           KEY_TAB,  nullptr,           false, false, false},
+  {"Circle tabs",           KEY_RIGHT_ARROW,  nullptr,           false, true, false}
 };
 
 const MacroProfile kProfiles[] = {
-  {"Meeting Core", {0, 1, 2, 3}, ROTARY_BEHAVIOR_VOLUME},
-  {"Meeting View", {4, 0, 3, 2}, ROTARY_BEHAVIOR_VOLUME},
-  {"Privacy", {1, 5, 0, 4}, ROTARY_BEHAVIOR_VOLUME},
-  {"Present", {2, 4, 1, 3}, ROTARY_BEHAVIOR_VOLUME},
-  {"Mixed", {5, 2, 0, 1}, ROTARY_BEHAVIOR_TRACK}
+  {"Zoom Core", {0, 1, 2, 3}, ROTARY_BEHAVIOR_VOLUME},
+  {"Media", {6, 7, 8, 9}, ROTARY_BEHAVIOR_VOLUME},
+  {"Claude", {10, 11, 12, 13}, ROTARY_BEHAVIOR_UP_DOWN}
 };
 
 const uint8_t PROFILE_COUNT = sizeof(kProfiles) / sizeof(kProfiles[0]);
@@ -154,6 +163,8 @@ const char* rotaryBehaviorLabel(RotaryBehavior behavior) {
       return "Volume";
     case ROTARY_BEHAVIOR_TRACK:
       return "Track";
+    case ROTARY_BEHAVIOR_UP_DOWN:
+      return "Up/Down";  
     case ROTARY_BEHAVIOR_NONE:
       return "None";
     default:
@@ -188,6 +199,23 @@ void triggerRotaryBehavior(RotaryBehavior behavior, int direction, bool bleConne
       }
       playRotaryActionBeep();
       break;
+    case ROTARY_BEHAVIOR_UP_DOWN:
+      bleKeyboard.press(KEY_LEFT_GUI);    // Hold down the GUI/Command key
+      delay(5);                           // Tiny buffer for the OS to register the modifier
+
+      if (direction > 0) {
+        bleKeyboard.write(KEY_DOWN_ARROW);
+        bleKeyboard.write(KEY_DOWN_ARROW);
+      } else {
+        bleKeyboard.write(KEY_UP_ARROW);
+        bleKeyboard.write(KEY_UP_ARROW);
+      }
+      
+      bleKeyboard.releaseAll();           // Cleanly release all keys together
+      delay(10);  
+      playRotaryActionBeep();
+      break;
+
     case ROTARY_BEHAVIOR_NONE:
       break;
   }
@@ -203,10 +231,14 @@ void sendShortcut(const MacroAction& action) {
   if (action.useShift) {
     bleKeyboard.press(KEY_LEFT_SHIFT);
   }
+  if (action.mediaKeyReport != nullptr) {
+    bleKeyboard.write(action.mediaKeyReport);
+  } else {
+    bleKeyboard.press(action.key);
+    delay(100);
+    bleKeyboard.releaseAll();
+  }
 
-  bleKeyboard.press(action.key);
-  delay(100);
-  bleKeyboard.releaseAll();
 }
 
 void drawNormalScreen(bool bleConnected) {
@@ -219,16 +251,16 @@ void drawNormalScreen(bool bleConnected) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setCursor(0, 0);
-  display.println(F("Macrodeck C3"));
+  display.println(F("Macrodeck"));
   display.print(F("Profile: "));
   display.println(profile.name);
-  display.print(F("BTN1: "));
+  display.print(F("1: "));
   display.println(action1.label);
-  display.print(F("BTN2: "));
+  display.print(F("2: "));
   display.println(action2.label);
-  display.print(F("BTN3: "));
+  display.print(F("3: "));
   display.println(action3.label);
-  display.print(F("BTN4: "));
+  display.print(F("4: "));
   display.println(action4.label);
   display.print(F("ROT: "));
   display.println(rotaryBehaviorLabel(profile.rotaryBehavior));
